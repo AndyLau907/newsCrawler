@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 from selenium.webdriver.chrome.options import Options
 import json
 import pymysql
+import time
 
 
 # ****获取新闻函数
@@ -25,19 +26,38 @@ def get_news(main_url, news_type):
     chrome_options = Options()
     chrome_options.add_argument('headless')
     chrome_options.add_argument('disable-gpu')
+    chrome_options.add_argument('disable-infobars')
     driver = webdriver.Chrome(chrome_options=chrome_options)
     driver.get(main_url)
+    time.sleep(3)
+
+    all_window_height = []
+    all_window_height.append(driver.execute_script("return document.body.scrollHeight;"))
+    while True:
+        driver.execute_script("scroll(0,100000)")
+        time.sleep(1)
+        check_height = driver.execute_script("return document.body.scrollHeight;")
+        if check_height == all_window_height[-1]:
+            break
+        else:
+            all_window_height.append(check_height)
     main_soup = BeautifulSoup(driver.page_source.encode('utf-8'), 'html.parser')
     main_url_list = []
     main_item_ids = []
 
     ul_list = main_soup.find('div', attrs={'class': 'channel_mod'}).findAll('ul', attrs={'class': 'list'})
     li_list = []
+    img_list = []
     for ul in ul_list:
         li_temp = ul.findAll('li')
         for lili in li_temp:
             li_list.append(lili)
     for li in li_list:
+        img = li.find('img')
+        try:
+            img_list.append(img['src'])
+        except:
+            continue
         main_item_ids.append(li['id'].split('_', 1)[0])
         main_url_list.append(li.find('a')['href'])
     index = 0
@@ -84,7 +104,7 @@ def get_news(main_url, news_type):
         if content == '':
             continue
         # 获取时间 新闻来源
-        time = ''
+        news_time = ''
         src = ''
         js_tags = soup.findAll('script')
         for js in js_tags:
@@ -96,19 +116,19 @@ def get_news(main_url, news_type):
                 str_js = str_js.replace('\n', '')
                 str_js = str_js.replace('\t', '')
                 data = json.loads(str_js)
-                time = data['pubtime']
+                news_time = data['pubtime']
                 src = data['media']
                 break
         create_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         # 插入数据
         cursor = conn.cursor()
         try:
-            cursor.execute('insert into news values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-                           [id, title, introduction, content, src, news_type, time, create_time, video_html,
+            cursor.execute('insert into news values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                           [id, title, introduction, content, src, news_type, news_time, create_time, video_html,
                             video_title,
-                            str(video_flag)])
+                            str(video_flag), img_list[index - 1]])
             conn.commit()
-            print item_url, '------', title
+            print img_list[index - 1], '------', title
         except:
             continue
         finally:
@@ -143,4 +163,4 @@ type_arg.append('sports')
 with ThreadPoolExecutor(max_workers=5) as executor:
     executor.map(get_news, url_arg, type_arg)
 # for i in range(len(url_arg)):
-# get_news(url_arg[0], type_arg[0])
+#get_news(url_arg[0], type_arg[0])
